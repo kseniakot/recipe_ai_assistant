@@ -1,18 +1,19 @@
 import ast
 
-import numpy as np
 import pandas as pd
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    VectorParams, SparseVectorParams, Distance,
-    PointStruct, SparseVector, PayloadSchemaType,
+    VectorParams,
+    SparseVectorParams,
+    Distance,
+    PointStruct,
+    SparseVector,
+    PayloadSchemaType,
 )
-from rag.models import get_embedding_model
-from rag.config import COLLECTION, CSV_PATH, SAMPLE_SIZE, DENSE_DIM
+from rag.config import COLLECTION, SAMPLE_SIZE, DENSE_DIM
 
 
 class RAGIndexer:
-
     def __init__(self, model, csv_path):
 
         self.model = model
@@ -26,13 +27,13 @@ class RAGIndexer:
         def convert_to_str(row: pd.Series) -> str:
             ingredients = ast.literal_eval(row["ingredients"])
             embed_text = (
-                    f"Name: {row['name']}. "
-                    f"Ingredients: {', '.join(ingredients)}. "
-                    f"Description: {row['description']}."
+                f"Name: {row['name']}. "
+                f"Ingredients: {', '.join(ingredients)}. "
+                f"Description: {row['description']}."
             )
             return embed_text
 
-        df['embed_text'] = df.apply(convert_to_str, axis=1)
+        df["embed_text"] = df.apply(convert_to_str, axis=1)
         return df
 
     def embed_batch(self, texts: list[str], batch_size: int = 12):
@@ -42,8 +43,8 @@ class RAGIndexer:
             return_sparse=True,
             batch_size=batch_size,
         )
-        dense = out["dense_vecs"]          # ndarray (N, 1024)
-        sparse = out["lexical_weights"]    # list[defaultdict]
+        dense = out["dense_vecs"]  # ndarray (N, 1024)
+        sparse = out["lexical_weights"]  # list[defaultdict]
         return dense, sparse
 
     @staticmethod
@@ -55,7 +56,15 @@ class RAGIndexer:
 
     def build_payload(self, row: pd.Series) -> dict:
         nutrition = ast.literal_eval(row["nutrition"])
-        nutrition_fields = ["calories", "fat", "sugar", "sodium", "protein", "sat_fat", "carbs"]
+        nutrition_fields = [
+            "calories",
+            "fat",
+            "sugar",
+            "sodium",
+            "protein",
+            "sat_fat",
+            "carbs",
+        ]
         return {
             "name": row["name"],
             "minutes": int(row["minutes"]),
@@ -72,7 +81,9 @@ class RAGIndexer:
             client.delete_collection(COLLECTION)
         client.create_collection(
             collection_name=COLLECTION,
-            vectors_config={"dense": VectorParams(size=DENSE_DIM, distance=Distance.COSINE)},
+            vectors_config={
+                "dense": VectorParams(size=DENSE_DIM, distance=Distance.COSINE)
+            },
             sparse_vectors_config={"sparse": SparseVectorParams()},
         )
         client.create_payload_index(COLLECTION, "tags", PayloadSchemaType.KEYWORD)
@@ -83,16 +94,20 @@ class RAGIndexer:
         points = []
         for i in range(len(ids)):
             s = self.to_qdrant_sparse(sparse[i])
-            points.append(PointStruct(
-                id=int(ids[i]),
-                vector={
-                    "dense": dense[i].tolist(),
-                    "sparse": SparseVector(indices=s["indices"], values=s["values"]),
-                },
-                payload=payloads[i],
-            ))
+            points.append(
+                PointStruct(
+                    id=int(ids[i]),
+                    vector={
+                        "dense": dense[i].tolist(),
+                        "sparse": SparseVector(
+                            indices=s["indices"], values=s["values"]
+                        ),
+                    },
+                    payload=payloads[i],
+                )
+            )
         for j in range(0, len(points), batch_size):
-            client.upsert(COLLECTION, points=points[j:j + batch_size])
+            client.upsert(COLLECTION, points=points[j : j + batch_size])
         return len(points)
 
     def run(self, client: QdrantClient) -> int:
@@ -102,7 +117,3 @@ class RAGIndexer:
         ids = df["id"].tolist()
         self.create_collection(client)
         return self.upsert_recipes(client, ids, dense, sparse, payloads)
-
-
-
-

@@ -1,5 +1,6 @@
 import sys
 import asyncio
+from typing import Literal, get_args
 from pathlib import Path
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
@@ -22,7 +23,7 @@ from retrieval import (
 from models import get_embedding_model, get_large_language_model, get_reranker
 
 
-DIET_TAGS = {
+Diet = Literal[
     "vegetarian",
     "vegan",
     "gluten-free",
@@ -37,31 +38,8 @@ DIET_TAGS = {
     "high-protein",
     "healthy",
     "diabetic",
-}
-DISH_TAGS = {
-    "main-dish",
-    "desserts",
-    "side-dishes",
-    "appetizers",
-    "salads",
-    "soups-stews",
-    "breads",
-    "beverages",
-    "snacks",
-    "sandwiches",
-    "dips",
-    "casseroles",
-    "cookies-and-brownies",
-    "cakes",
-    "breakfast",
-}
-CUISINE_TAGS = {
-    "north-american",
-    "american",
-    "european",
-    "asian",
-    "southern-united-states",
-}
+]
+DIETS = frozenset(get_args(Diet))
 
 
 def _summary(payload: dict) -> dict:
@@ -140,22 +118,21 @@ async def search_recipes(query: str, ctx: Context, top_k: int = 5) -> list[dict]
 @mcp.tool()
 async def filter_recipes(
     ctx: Context,
-    diet: str | None = None,
+    diet: Diet | None = None,
     max_minutes: int | None = None,
     max_calories: float | None = None,
     limit: int = 10,
 ) -> list[dict] | dict:
     """Filter recipes by exact metadata (no semantic search).
 
-    Use when the request has hard constraints: a diet tag (e.g. "vegan"),
-    a maximum cook time in minutes, or a calorie ceiling. At least one filter
-    is required. Valid diet values come from the `recipes://filters` resource.
+    Use for hard constraints: a `diet` (one of the allowed values, e.g.
+    "vegan", "gluten-free", "low-carb"), a maximum cook time in minutes, or a
+    calorie ceiling. At least one filter is required. For cuisine or dish-type
+    requests (e.g. "mexican breakfast") use `search_recipes` instead.
     """
     conditions = []
     if diet:
-        conditions.append(
-            FieldCondition(key="tags", match=MatchValue(value=diet.lower()))
-        )
+        conditions.append(FieldCondition(key="tags", match=MatchValue(value=diet)))
     if max_minutes is not None:
         conditions.append(FieldCondition(key="minutes", range=Range(lte=max_minutes)))
     if max_calories is not None:
@@ -207,27 +184,52 @@ async def calculate_nutrition(recipe_name: str, ctx: Context) -> dict:
     return {"name": p["name"], "nutrition": p["nutrition"]}
 
 
+@mcp.tool()
+async def get_recipe_steps(recipe_name: str, ctx: Context) -> dict:
+    """Return the cooking instructions for a recipe by name.
+
+    Use after `search_recipes`/`filter_recipes` when the user picks a recipe and
+    wants to know how to make it. Returns the ingredients and the ordered steps.
+    """
+    if not recipe_name or not recipe_name.strip():
+        raise ValueError("recipe_name must not be empty")
+    app = ctx.request_context.lifespan_context
+    await ctx.info(f"Fetching steps for: {recipe_name!r}")
+    try:
+        points = await asyncio.to_thread(
+            lookup_by_name, app.client, app.model, recipe_name, 1
+        )
+    except Exception as e:
+        await ctx.error(f"steps lookup failed: {e}")
+        return {"error": "recipe lookup is temporarily unavailable"}
+    if not points:
+        await ctx.warning(f"no recipe matched {recipe_name!r}")
+        return {"error": f"no recipe found for '{recipe_name}'"}
+    p = points[0].payload
+    return {
+        "name": p["name"],
+        "minutes": p["minutes"],
+        "ingredients": p["ingredients"],
+        "steps": p["steps"],
+    }
+
+
 @mcp.resource("recipes://filters")
 def available_filters() -> dict:
-    """Valid filter values present in the corpus: diets, dish types, cuisines,
-    and the available ranges for cook time and calories. Read this before
-    calling `filter_recipes` to use valid argument values."""
+    """Filter options for `filter_recipes`: the diets that have recipes in the
+    corpus, plus the available ranges for cook time (minutes) and calories."""
     client = QdrantClient(url=QDRANT_URL)
     try:
-        diets, dishes, cuisines = set(), set(), set()
+        diets = set()
         minutes, calories = [], []
         points, _ = client.scroll(COLLECTION, limit=10_000, with_payload=True)
         for p in points:
             pl = p.payload
-            diets |= DIET_TAGS.intersection(pl["tags"])
-            dishes |= DISH_TAGS.intersection(pl["tags"])
-            cuisines |= CUISINE_TAGS.intersection(pl["tags"])
+            diets |= DIETS.intersection(pl["tags"])
             minutes.append(pl["minutes"])
             calories.append(pl["calories"])
         return {
             "diets": sorted(diets),
-            "dish_types": sorted(dishes),
-            "cuisines": sorted(cuisines),
             "minutes": {"min": min(minutes), "max": max(minutes)},
             "calories": {"min": min(calories), "max": max(calories)},
         }

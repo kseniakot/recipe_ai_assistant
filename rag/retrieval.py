@@ -124,3 +124,37 @@ def search_with_multi_query(
         hybrid_search(client, model, q, limit=per_query_limit) for q in queries
     ]
     return reciprocal_rank_fusion(result_lists, limit=limit)
+
+
+def _rerank_text(payload: dict) -> str:
+    return (
+        f"{payload['name']}. "
+        f"Ingredients: {', '.join(payload['ingredients'])}. "
+        f"Tags: {', '.join(payload['tags'])}."
+    )
+
+
+def rerank(reranker, query: str, points: list, top_k: int = 5):
+    if not points:
+        return []
+    pairs = [[query, _rerank_text(p.payload)] for p in points]
+    scores = reranker.compute_score(pairs, normalize=True)
+    ranked = sorted(zip(points, scores), key=lambda ps: ps[1], reverse=True)
+    out = []
+    for point, score in ranked[:top_k]:
+        point.score = float(score)  # overwrite with final reranker score
+        out.append(point)
+    return out
+
+
+def search(
+    client: QdrantClient,
+    model: BGEM3FlagModel,
+    llm: OpenAI,
+    reranker,
+    query: str,
+    top_k: int = 5,
+    candidates: int = 20,
+):
+    fused = search_with_multi_query(client, model, llm, query, limit=candidates)
+    return rerank(reranker, query, fused, top_k=top_k)

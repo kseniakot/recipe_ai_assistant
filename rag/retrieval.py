@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector
@@ -90,3 +92,35 @@ def hybrid_search(
         with_payload=True,
     )
     return result.points
+
+
+def reciprocal_rank_fusion(result_lists: list[list], k: int = 60, limit: int = 10):
+    scores: dict = defaultdict(float)
+    point_by_id: dict = {}
+    for results in result_lists:
+        for rank, point in enumerate(results):
+            scores[point.id] += 1 / (k + rank + 1)
+            point_by_id[point.id] = point
+    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    fused = []
+    for pid, score in ranked[:limit]:
+        point = point_by_id[pid]
+        point.score = score  # overwrite inner score with outer RRF score
+        fused.append(point)
+    return fused
+
+
+def search_with_multi_query(
+    client: QdrantClient,
+    model: BGEM3FlagModel,
+    llm: OpenAI,
+    query: str,
+    n: int = 3,
+    limit: int = 10,
+    per_query_limit: int = 20,
+):
+    queries = multi_query(llm, query, n=n)
+    result_lists = [
+        hybrid_search(client, model, q, limit=per_query_limit) for q in queries
+    ]
+    return reciprocal_rank_fusion(result_lists, limit=limit)

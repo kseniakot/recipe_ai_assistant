@@ -12,3 +12,6 @@ wheels/
 
 materials/
 .DS_Store
+
+# Qdrant Docker volume
+qdrant_data/

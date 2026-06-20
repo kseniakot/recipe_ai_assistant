@@ -237,5 +237,23 @@ def available_filters() -> dict:
         client.close()
 
 
+@mcp.prompt()
+def plan_meal(diet: Diet, max_minutes: int = 30) -> str:
+    """Plan a meal for a diet within a time budget: find a recipe, then show
+    its nutrition and cooking steps. Exposed as a reusable slash command.
+
+    diet must be one of: vegetarian, vegan, gluten-free, low-carb,
+    very-low-carbs, low-fat, low-sodium, low-cholesterol, low-calorie,
+    low-saturated-fat, low-protein, high-protein, healthy, diabetic.
+    """
+    return (
+        f"Plan a meal for a {diet} diet that takes at most {max_minutes} minutes.\n"
+        f"1. Call filter_recipes(diet='{diet}', max_minutes={max_minutes}) to find options.\n"
+        f"2. Pick the best option and call calculate_nutrition on its name.\n"
+        f"3. Call get_recipe_steps on the same recipe.\n"
+        f"Then present the recipe name, a short nutrition summary, and the steps."
+    )
+
+
 if __name__ == "__main__":
     mcp.run()

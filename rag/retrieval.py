@@ -94,6 +94,33 @@ def hybrid_search(
     return result.points
 
 
+def lookup_by_name(
+    client: QdrantClient, model: BGEM3FlagModel, name: str, limit: int = 1
+):
+    """Find a recipe by name: sparse first, hybrid fallback.
+
+    A recipe name is a literal string, so sparse token matching fits best and
+    ranks an exact name #1. Falls back to dense semantics only if no token
+    overlaps. Encodes once and reuses both vectors.
+    """
+    dense, sparse = embed_query(model, name)
+    points = client.query_points(
+        COLLECTION, query=sparse, using="sparse", limit=limit, with_payload=True
+    ).points
+    if points:
+        return points
+    return client.query_points(
+        COLLECTION,
+        prefetch=[
+            Prefetch(query=sparse, using="sparse", limit=20),
+            Prefetch(query=dense, using="dense", limit=20),
+        ],
+        query=FusionQuery(fusion=Fusion.RRF),
+        limit=limit,
+        with_payload=True,
+    ).points
+
+
 def reciprocal_rank_fusion(result_lists: list[list], k: int = 60, limit: int = 10):
     scores: dict = defaultdict(float)
     point_by_id: dict = {}
@@ -108,22 +135,6 @@ def reciprocal_rank_fusion(result_lists: list[list], k: int = 60, limit: int = 1
         point.score = score  # overwrite inner score with outer RRF score
         fused.append(point)
     return fused
-
-
-def search_with_multi_query(
-    client: QdrantClient,
-    model: BGEM3FlagModel,
-    llm: OpenAI,
-    query: str,
-    n: int = 3,
-    limit: int = 10,
-    per_query_limit: int = 20,
-):
-    queries = multi_query(llm, query, n=n)
-    result_lists = [
-        hybrid_search(client, model, q, limit=per_query_limit) for q in queries
-    ]
-    return reciprocal_rank_fusion(result_lists, limit=limit)
 
 
 def _rerank_text(payload: dict) -> str:
@@ -145,16 +156,3 @@ def rerank(reranker, query: str, points: list, top_k: int = 5):
         point.score = float(score)  # overwrite with final reranker score
         out.append(point)
     return out
-
-
-def search(
-    client: QdrantClient,
-    model: BGEM3FlagModel,
-    llm: OpenAI,
-    reranker,
-    query: str,
-    top_k: int = 5,
-    candidates: int = 20,
-):
-    fused = search_with_multi_query(client, model, llm, query, limit=candidates)
-    return rerank(reranker, query, fused, top_k=top_k)

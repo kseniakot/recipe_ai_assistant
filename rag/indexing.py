@@ -10,7 +10,7 @@ from qdrant_client.models import (
     SparseVector,
     PayloadSchemaType,
 )
-from rag.config import COLLECTION, SAMPLE_SIZE, DENSE_DIM
+from config import COLLECTION, SAMPLE_SIZE, DENSE_DIM
 
 
 class RAGIndexer:

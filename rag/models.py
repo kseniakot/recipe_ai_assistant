@@ -2,9 +2,9 @@ from functools import lru_cache
 
 from FlagEmbedding import BGEM3FlagModel
 from openai import OpenAI
-from reranker import CrossEncoderReranker
+from rag.reranker import CrossEncoderReranker
 
-from config import LLM_BASE_URL
+from rag.config import LLM_BASE_URL
 
 
 @lru_cache(maxsize=1)

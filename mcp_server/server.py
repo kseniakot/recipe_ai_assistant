@@ -1,26 +1,21 @@
-import sys
 import asyncio
 from typing import Literal, get_args
-from pathlib import Path
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
-
-# Make the flat-import `rag/` modules importable from this directory.
-sys.path.insert(0, str(Path(__file__).parent.parent / "rag"))
 
 from mcp.server.fastmcp import Context, FastMCP
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
-from config import QDRANT_URL, COLLECTION
-from retrieval import (
+from rag.config import QDRANT_URL, COLLECTION
+from rag.retrieval import (
     multi_query,
     hybrid_search,
     reciprocal_rank_fusion,
     rerank,
     lookup_by_name,
 )
-from models import get_embedding_model, get_large_language_model, get_reranker
+from rag.models import get_embedding_model, get_large_language_model, get_reranker
 
 
 Diet = Literal[

@@ -5,7 +5,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector
 from FlagEmbedding import BGEM3FlagModel
 
-from config import LLM_MODEL, COLLECTION
+from rag.config import LLM_MODEL, COLLECTION
 
 # Few-shot prompt
 MULTI_QUERY_SYSTEM = (

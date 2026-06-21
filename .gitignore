@@ -15,3 +15,10 @@ materials/
 
 # Qdrant Docker volume
 qdrant_data/
+
+# LangGraph dev local state
+.langgraph_api/
+*.pckl
+.langgraph_checkpoint*
+store.pckl
+store.vectors.pckl

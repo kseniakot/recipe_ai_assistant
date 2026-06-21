@@ -2,7 +2,15 @@ from collections import defaultdict
 
 from openai import OpenAI
 from qdrant_client import QdrantClient
-from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector
+from qdrant_client.models import (
+    Prefetch,
+    FusionQuery,
+    Fusion,
+    SparseVector,
+    Filter,
+    FieldCondition,
+    MatchValue,
+)
 from FlagEmbedding import BGEM3FlagModel
 
 from rag.config import LLM_MODEL, COLLECTION
@@ -97,18 +105,22 @@ def hybrid_search(
 def lookup_by_name(
     client: QdrantClient, model: BGEM3FlagModel, name: str, limit: int = 1
 ):
-    """Find a recipe by name: sparse first, hybrid fallback.
+    """Find a recipe by name: exact match on the name field, hybrid fallback."""
+    exact, _ = client.scroll(
+        COLLECTION,
+        scroll_filter=Filter(
+            must=[
+                FieldCondition(key="name", match=MatchValue(value=name.strip().lower()))
+            ]
+        ),
+        limit=limit,
+        with_payload=True,
+    )
+    if exact:
+        return exact
 
-    A recipe name is a literal string, so sparse token matching fits best and
-    ranks an exact name #1. Falls back to dense semantics only if no token
-    overlaps. Encodes once and reuses both vectors.
-    """
+    # fallback in case model used approximate name
     dense, sparse = embed_query(model, name)
-    points = client.query_points(
-        COLLECTION, query=sparse, using="sparse", limit=limit, with_payload=True
-    ).points
-    if points:
-        return points
     return client.query_points(
         COLLECTION,
         prefetch=[

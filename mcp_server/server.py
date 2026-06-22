@@ -1,8 +1,13 @@
+import os
 import asyncio
+import logging
+import logging.config
+from pathlib import Path
 from typing import Literal, get_args
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from mcp.server.fastmcp import Context, FastMCP
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
@@ -10,12 +15,62 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 from rag.config import QDRANT_URL, COLLECTION
 from rag.retrieval import (
     multi_query,
-    hybrid_search,
+    multi_query_dense_sparse,
     reciprocal_rank_fusion,
     rerank,
     lookup_by_name,
 )
 from rag.models import get_embedding_model, get_large_language_model, get_reranker
+
+
+def setup_logging() -> logging.Logger:
+    """Configure console (stderr) + file logging from a declarative config and
+    return the module logger. The log file path is overridable via the
+    MCP_LOG_PATH env var."""
+    log_file = Path(
+        os.getenv("MCP_LOG_PATH", Path(__file__).parent.parent / "logs" / "mcp.log")
+    )
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    logging.config.dictConfig(
+        {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "console": {"format": "[mcp] %(message)s"},
+                "file": {"format": "%(asctime)s %(message)s"},
+            },
+            "handlers": {
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stderr",
+                    "formatter": "console",
+                },
+                "file": {
+                    "class": "logging.FileHandler",
+                    "filename": str(log_file),
+                    "formatter": "file",
+                },
+            },
+            "loggers": {
+                name: {"level": "WARNING"}
+                for name in (
+                    "httpx",
+                    "httpcore",
+                    "transformers",
+                    "FlagEmbedding",
+                    "sentence_transformers",
+                    "huggingface_hub",
+                    "mcp",
+                )
+            },
+            "root": {"level": "INFO", "handlers": ["console", "file"]},
+        }
+    )
+    return logging.getLogger(__name__)
+
+
+load_dotenv(Path(__file__).parent.parent / ".env")
+logger = setup_logging()
 
 
 Diet = Literal[
@@ -88,21 +143,44 @@ async def search_recipes(query: str, ctx: Context, top_k: int = 5) -> list[dict]
         raise ValueError("query must not be empty")
     app = ctx.request_context.lifespan_context
     await ctx.info(f"Searching recipes for: {query!r}")
+    logger.info("search_recipes query=%r top_k=%s", query, top_k)
     try:
         # 1/3 — expand the query with the LLM
         queries = await asyncio.to_thread(multi_query, app.llm, query)
         await ctx.report_progress(1, 3, f"expanded into {len(queries)} queries")
+        logger.info("  multi-query -> %s", queries)
 
-        # 2/3 — hybrid search each variant, RRF
-        result_lists = await asyncio.to_thread(
-            lambda: [hybrid_search(app.client, app.model, q, limit=20) for q in queries]
+        # 2/3 — separate dense (cosine) + sparse (dot) per query, fused by RRF
+        per_query = await asyncio.to_thread(
+            multi_query_dense_sparse, app.client, app.model, queries, 20
         )
+        result_lists = []
+        for q, d, s in per_query:
+            result_lists += [d, s]
+            logger.info(
+                "  dense  %r -> %s",
+                q,
+                [(p.payload["name"], round(p.score, 4)) for p in d[:5]],
+            )
+            logger.info(
+                "  sparse %r -> %s",
+                q,
+                [(p.payload["name"], round(p.score, 4)) for p in s[:5]],
+            )
         fused = reciprocal_rank_fusion(result_lists, limit=20)
         await ctx.report_progress(2, 3, f"retrieved {len(fused)} candidates")
+        logger.info(
+            "  fused RRF -> %s",
+            [(p.payload["name"], round(p.score, 4)) for p in fused[:10]],
+        )
 
         # 3/3 — cross-encoder rerank against the original query
         points = await asyncio.to_thread(rerank, app.reranker, query, fused, top_k)
         await ctx.report_progress(3, 3, "reranked")
+        logger.info(
+            "  after rerank -> %s",
+            [(p.payload["name"], round(p.score, 4)) for p in points],
+        )
     except Exception as e:
         await ctx.error(f"search failed: {e}")
         return {"error": "recipe search is temporarily unavailable"}
@@ -167,7 +245,7 @@ async def calculate_nutrition(recipe_name: str, ctx: Context) -> dict:
     await ctx.info(f"Looking up nutrition for: {recipe_name!r}")
     try:
         points = await asyncio.to_thread(
-            lookup_by_name, app.client, app.model, recipe_name, 1
+            lookup_by_name, app.client, app.model, app.reranker, recipe_name, 1
         )
     except Exception as e:
         await ctx.error(f"nutrition lookup failed: {e}")
@@ -192,7 +270,7 @@ async def get_recipe_steps(recipe_name: str, ctx: Context) -> dict:
     await ctx.info(f"Fetching steps for: {recipe_name!r}")
     try:
         points = await asyncio.to_thread(
-            lookup_by_name, app.client, app.model, recipe_name, 1
+            lookup_by_name, app.client, app.model, app.reranker, recipe_name, 1
         )
     except Exception as e:
         await ctx.error(f"steps lookup failed: {e}")

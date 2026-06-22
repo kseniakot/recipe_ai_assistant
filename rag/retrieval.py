@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 
 from openai import OpenAI
@@ -13,7 +14,9 @@ from qdrant_client.models import (
 )
 from FlagEmbedding import BGEM3FlagModel
 
-from rag.config import LLM_MODEL, COLLECTION
+from rag.config import LLM_MODEL, COLLECTION, RERANK_MIN_SCORE
+
+logger = logging.getLogger(__name__)
 
 # Few-shot prompt
 MULTI_QUERY_SYSTEM = (
@@ -102,10 +105,30 @@ def hybrid_search(
     return result.points
 
 
-def lookup_by_name(
-    client: QdrantClient, model: BGEM3FlagModel, name: str, limit: int = 1
+def multi_query_dense_sparse(
+    client: QdrantClient, model: BGEM3FlagModel, queries: list[str], limit: int = 20
 ):
-    """Find a recipe by name: exact match on the name field, hybrid fallback."""
+    """Run a separate dense (cosine) and sparse (dot) search for every query,
+    from a single encode each. Returns [(query, dense_points, sparse_points), ...].
+    """
+    out = []
+    for q in queries:
+        dense, sparse = embed_query(model, q)
+        d = client.query_points(
+            COLLECTION, query=dense, using="dense", limit=limit, with_payload=True
+        ).points
+        s = client.query_points(
+            COLLECTION, query=sparse, using="sparse", limit=limit, with_payload=True
+        ).points
+        out.append((q, d, s))
+    return out
+
+
+def lookup_by_name(
+    client: QdrantClient, model: BGEM3FlagModel, reranker, name: str, limit: int = 1
+):
+    """Find a recipe by name: exact match on the name field, else hybrid
+    retrieve + cross-encoder rerank."""
     exact, _ = client.scroll(
         COLLECTION,
         scroll_filter=Filter(
@@ -117,20 +140,18 @@ def lookup_by_name(
         with_payload=True,
     )
     if exact:
+        logger.info("lookup_by_name %r -> exact match", name)
         return exact
 
     # fallback in case model used approximate name
-    dense, sparse = embed_query(model, name)
-    return client.query_points(
-        COLLECTION,
-        prefetch=[
-            Prefetch(query=sparse, using="sparse", limit=20),
-            Prefetch(query=dense, using="dense", limit=20),
-        ],
-        query=FusionQuery(fusion=Fusion.RRF),
-        limit=limit,
-        with_payload=True,
-    ).points
+    candidates = hybrid_search(client, model, name, limit=10)
+    ranked = rerank(reranker, name, candidates, top_k=limit)
+    logger.info(
+        "lookup_by_name %r -> no exact match; rerank %s",
+        name,
+        [(p.payload["name"], round(p.score, 4)) for p in ranked],
+    )
+    return ranked
 
 
 def reciprocal_rank_fusion(result_lists: list[list], k: int = 60, limit: int = 10):
@@ -157,14 +178,25 @@ def _rerank_text(payload: dict) -> str:
     )
 
 
-def rerank(reranker, query: str, points: list, top_k: int = 5):
+def rerank(
+    reranker,
+    query: str,
+    points: list,
+    top_k: int = 5,
+    min_score: float = RERANK_MIN_SCORE,
+):
+    """Re-score with the cross-encoder, drop results below `min_score`, keep top_k."""
     if not points:
         return []
     pairs = [[query, _rerank_text(p.payload)] for p in points]
     scores = reranker.compute_score(pairs, normalize=True)
     ranked = sorted(zip(points, scores), key=lambda ps: ps[1], reverse=True)
     out = []
-    for point, score in ranked[:top_k]:
-        point.score = float(score)  # overwrite with final reranker score
+    for point, score in ranked:
+        if score < min_score:
+            break
+        point.score = float(score)
         out.append(point)
+        if len(out) >= top_k:
+            break
     return out

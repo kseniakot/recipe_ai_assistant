@@ -22,3 +22,9 @@ qdrant_data/
 .langgraph_checkpoint*
 store.pckl
 store.vectors.pckl
+
+# MCP server logs
+logs/
+
+# Environment variables
+.env

@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "question": "What can I make with chicken and rice?",
+    "capability": "semantic search by ingredients",
+    "expected_tool": "search_recipes"
+  },
+  {
+    "id": 2,
+    "question": "Find me a vegan recipe that takes 15 minutes or less.",
+    "capability": "metadata filter (diet + time)",
+    "expected_tool": "filter_recipes"
+  },
+  {
+    "id": 3,
+    "question": "I want a low-carb dish under 300 calories.",
+    "capability": "metadata filter (diet + calories)",
+    "expected_tool": "filter_recipes"
+  },
+  {
+    "id": 4,
+    "question": "How many calories are in the banana walnut oatmeal?",
+    "capability": "nutrition lookup by name",
+    "expected_tool": "calculate_nutrition"
+  },
+  {
+    "id": 5,
+    "question": "How do I make a carrot tahini sandwich?",
+    "capability": "cooking steps lookup by name",
+    "expected_tool": "get_recipe_steps"
+  },
+  {
+    "id": 6,
+    "question": "Suggest an easy vegetarian dinner with beans, then tell me how to cook it.",
+    "capability": "multi-step: search + steps",
+    "expected_tool": "search_recipes + get_recipe_steps"
+  },
+  {
+    "id": 7,
+    "question": "Find a gluten-free dessert and show its nutrition.",
+    "capability": "multi-step: filter + nutrition",
+    "expected_tool": "filter_recipes + calculate_nutrition"
+  },
+  {
+    "id": 8,
+    "question": "I have eggs, cheese and tomatoes. What breakfast can I make?",
+    "capability": "semantic search by ingredients",
+    "expected_tool": "search_recipes"
+  },
+  {
+    "id": 9,
+    "question": "Give me a healthy soup recipe and its cooking time.",
+    "capability": "search + reading metadata",
+    "expected_tool": "search_recipes"
+  },
+  {
+    "id": 10,
+    "question": "Find me a nalisniki recipe.",
+    "capability": "edge case: rare dish name the reranker does not recognise",
+    "expected_tool": "search_recipes (a crepe analogue exists in the corpus)"
+  }
+]

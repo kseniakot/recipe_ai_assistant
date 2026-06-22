@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.14"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -556,6 +556,7 @@ dependencies = [
     { name = "langgraph-cli", extra = ["inmem"] },
     { name = "mcp" },
     { name = "openai" },
+    { name = "python-dotenv" },
     { name = "qdrant-client" },
     { name = "tqdm" },
     { name = "transformers" },
@@ -576,6 +577,7 @@ requires-dist = [
     { name = "langgraph-cli", extras = ["inmem"], specifier = ">=0.4.30" },
     { name = "mcp", specifier = ">=1.28.0" },
     { name = "openai", specifier = ">=2.43.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "qdrant-client", specifier = ">=1.18.0" },
     { name = "tqdm", specifier = ">=4.68.3" },
     { name = "transformers", specifier = ">=5.12.1" },

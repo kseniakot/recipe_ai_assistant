@@ -21,7 +21,7 @@ class RAGIndexer:
 
     def preprocess_dataframe(self):
         df = pd.read_csv(self.csv_path)
-        df = df.sample(SAMPLE_SIZE, random_state=42)
+        df = df.sample(min(SAMPLE_SIZE, len(df)), random_state=42)
         df["description"] = df["description"].fillna("")
 
         def convert_to_str(row: pd.Series) -> str:

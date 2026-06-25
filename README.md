@@ -4,6 +4,8 @@ A domain-specific AI assistant for **cooking recipes** from Food.com that combin
 Retrieval-Augmented Generation over a recipe corpus with tool-based actions
 exposed through an MCP server, driven by a LangGraph ReAct agent.
 
+[*Video*](https://drive.google.com/file/d/16cAmJniCjGNEDHvROvPugjlzt3HgIG3z/view?usp=sharing)
+
 ## Domain
 
 The assistant answers recipe questions from a knowledge base of ~500 recipes

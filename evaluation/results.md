@@ -36,7 +36,7 @@ is a human judge over a fixed scoring table.
 | 2 | vegan <= 15 min | filter_recipes | 5 | 1.00 | exact metadata filter, all match |
 | 3 | low-carb < 300 cal | filter_recipes | 5 | 1.00 | all within constraints |
 | 4 | calories of banana walnut oatmeal | calculate_nutrition | 5 | 1.00 | exact-name lookup, correct |
-| 5 | how to make carrot tahini sandwich | search_recipes | 2 | 1.00 | **failure 1** — wrong tool; retrieval found it, but no steps were returned by agent |
+| 5 | how to make carrot tahini sandwich | search_recipes | 2 | 1.00 | **failure 1** — retrieval found the exact recipe (P@k 1.0), but the agent didn't recognise it and never returned the steps |
 | 6 | vegetarian beans dinner + how to cook | search_recipes + get_recipe_steps | 5 | 1.00 | correct multi-step chain |
 | 7 | gluten-free dessert + nutrition | search_recipes + calculate_nutrition | 5 | 0.80 | correct dessert + nutrition; one retrieved item not a dessert |
 | 8 | eggs/cheese/tomatoes breakfast | search_recipes | 4 | 0.80 | 4/5 fit the ingredients |
@@ -55,23 +55,26 @@ recipes (Q4, Q6), and multi-step chains when the request needs them (Q6, Q7).
 
 ## Failure cases
 
-### Failure 1 — wrong tool for a "how do I make X" request (Q5)
+### Failure 1 — agent fails to use a correct retrieval (Q5)
 
 **Question:** *"How do I make a carrot tahini sandwich?"*
-**What happened:** the agent called `search_recipes("carrot tahini sandwich")` instead of
-`get_recipe_steps`. Retrieval actually returned the exact recipe as result #1, but the
-model then replied *"none of them exactly match"* and never fetched the steps.
+**What happened:** the agent called `search_recipes("carrot tahini sandwich")`, and
+retrieval did its job perfectly — the exact recipe came back as result #1. But
+the model then replied *"none of them exactly match"*, never recognised that the top hit
+**was** the requested dish, and so never called `get_recipe_steps` to return the
+instructions.
 
-![agent searching instead of calling get_recipe_steps, then failing to return steps](../images/failure-1.png)
+![agent searching, retrieving the exact recipe, yet replying that nothing matches and not returning the steps](../images/failure-1.png)
 
-**Why:** the system prompt frames `get_recipe_steps` as something to use *after* the user
-picks a recipe, so the model defaulted to searching first and then failed to recognise
-that the top hit was the requested dish.
+**Why:** The failure is that the model doesn't trust its own retrieval. It treats the
+returned recipe as "not a match" instead of recognising it and chaining into
+`get_recipe_steps`. (Possibly, the system prompt nudges this by framing `get_recipe_steps`
+as something to use only *after* the user explicitly picks a recipe.) Hence relevance 2 —
+"relevant data was retrieved but the answer fails to use it" — despite precision 1.0.
 
 **Improvements:**
-- Tighten the tool description: "use `get_recipe_steps` whenever the user names a specific
-  dish and asks how to make it — no prior search needed."
-- Add a few-shot example of the "how do I make X" → `get_recipe_steps` mapping.
+- Add a few-shot example of "request - retrieved top hit - chain into `get_recipe_steps`",
+  so the model learns to act on a strong match instead of second-guessing it.
 
 ### Failure 2 — reranker collapses on a rare term, LLM trusts the wrong recipe (Q10)
 

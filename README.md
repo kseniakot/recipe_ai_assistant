@@ -54,7 +54,7 @@ while hard constraints (*vegan*, *under 30 minutes*, *low-carb*) and derived fac
 - **Advanced techniques:**
   - **Multi-query** — the LLM rewrites the query into several phrasings.
   - **Hybrid search** — dense + sparse fused with **Reciprocal Rank Fusion**
-    inside Qdrant, then an outer RRF across the multi-query variants.
+    across the multi-query variants.
   - **Cross-encoder reranking** — `bge-reranker-v2-m3` re-scores candidates
     against the original query.
 

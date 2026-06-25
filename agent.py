@@ -6,7 +6,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph, START, MessagesState
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from rag.config import LLM_BASE_URL, LLM_MODEL
+from rag.config import LLM_BASE_URL, LLM_MODEL, RECURSION_LIMIT
 
 
 mcp_client = MultiServerMCPClient(
@@ -43,6 +43,8 @@ ERROR_PROMPT = """If a tool returns an error or unexpected result:
 - Think about why it might have failed
 - Consider alternative approaches
 - Try different parameters or a different tool
+- An empty result (or a "no_matches" message) means there are NO matching recipes.
+  Do NOT retry with a reworded query — tell the user nothing was found and stop.
 - Never make up information if tools fail"""
 
 FOCUSED_PROMPT = """Guidelines:
@@ -98,7 +100,7 @@ async def make_graph():
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", tools_condition)
     graph.add_edge("tools", "agent")
-    return graph.compile()
+    return graph.compile().with_config({"recursion_limit": RECURSION_LIMIT})
 
 
 async def main():

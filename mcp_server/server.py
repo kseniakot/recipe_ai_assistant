@@ -137,7 +137,7 @@ async def search_recipes(query: str, ctx: Context, top_k: int = 5) -> list[dict]
     Use for open-ended requests like "easy vegetarian dinner with beans".
     Runs multi-query expansion + hybrid (dense+sparse) search + cross-encoder
     reranking. Returns up to `top_k` recipes with name, minutes, calories,
-    ingredients and tags.
+    ingredients and tags. Can return empty list [] if there are no relevant recipes stored.
     """
     if not query or not query.strip():
         raise ValueError("query must not be empty")
@@ -185,6 +185,14 @@ async def search_recipes(query: str, ctx: Context, top_k: int = 5) -> list[dict]
         await ctx.error(f"search failed: {e}")
         return {"error": "recipe search is temporarily unavailable"}
     await ctx.info(f"Found {len(points)} recipes")
+    if not points:
+        return {
+            "result": "no_matches",
+            "message": (
+                f"No recipes matching {query!r} were found in the database. "
+                "Do not retry with a reworded query — tell the user nothing was found."
+            ),
+        }
     return [_summary(p.payload) for p in points]
 
 
@@ -262,7 +270,9 @@ async def get_recipe_steps(recipe_name: str, ctx: Context) -> dict:
     """Return the cooking instructions for a recipe by name.
 
     Use after `search_recipes`/`filter_recipes` when the user picks a recipe and
-    wants to know how to make it. Returns the ingredients and the ordered steps.
+    wants to know how to make it or when the user gives a recipe name in their query and asks explicitly asks
+    for the recipe steps or how to make a specific recipe.
+    Returns the ingredients and the ordered steps.
     """
     if not recipe_name or not recipe_name.strip():
         raise ValueError("recipe_name must not be empty")
